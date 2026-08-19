@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Real-Time SRE Alert Monitor</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0b0f19; color: #f8fafc; margin: 0; padding: 28px; }
+    .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1e293b; padding-bottom: 16px; margin-bottom: 24px; }
+    .status-badge { padding: 6px 14px; border-radius: 9999px; font-size: 13px; font-weight: 600; transition: all 0.3s ease; }
+    .status-connected { background: #064e3b; color: #34d399; }
+    .status-disconnected { background: #7f1d1d; color: #f87171; }
+    .grid { display: flex; flex-direction: column; gap: 14px; }
+    .card { background: #1e293b; border-left: 5px solid #ef4444; border-radius: 8px; padding: 16px 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.4); animation: slide 0.25s ease-out; }
+    @keyframes slide { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+    .card-header { display: flex; justify-content: space-between; margin-bottom: 8px; }
+    .service-name { color: #f87171; font-weight: 700; font-size: 15px; text-transform: uppercase; }
+    .timestamp { color: #94a3b8; font-size: 12px; }
+    .card-body { font-size: 14px; color: #cbd5e1; line-height: 1.5; }
+    .trace { font-family: monospace; font-size: 12px; color: #38bdf8; margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1 style="margin: 0; font-size: 22px;">🚨 Real-Time SRE Alert Monitor</h1>
+      <p style="margin: 4px 0 0; color: #94a3b8; font-size: 13px;">Streaming Kafka anomalies via WebSockets</p>
+    </div>
+    <span id="conn-status" class="status-badge status-disconnected">Disconnected</span>
+  </div>
+
+  <div id="alerts-container" class="grid">
+    <p id="empty-state" style="color: #64748b; font-style: italic;">No threshold anomalies detected. Systems nominal.</p>
+  </div>
+
+  <script>
+    const statusBadge = document.getElementById('conn-status');
+    const container = document.getElementById('alerts-container');
+    const emptyState = document.getElementById('empty-state');
+
+    // Dynamically connect to the WebSocket endpoint on the active host
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/alerts`;
+    
+    let ws;
+    function connect() {
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        statusBadge.textContent = '● WebSocket Connected';
+        statusBadge.className = 'status-badge status-connected';
+      };
+
+      ws.onclose = () => {
+        statusBadge.textContent = 'Disconnected (Retrying...)';
+        statusBadge.className = 'status-badge status-disconnected';
+        setTimeout(connect, 2000); // Auto reconnect if server restarts
+      };
+
+      ws.onerror = (err) => {
+        console.error('WebSocket Error:', err);
+      };
+
+      ws.onmessage = (event) => {
+        if (emptyState) emptyState.style.display = 'none';
+
+        const data = JSON.parse(event.data);
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+          <div class="card-header">
+            <span class="service-name">⚠️ CRITICAL INCIDENT: ${data.service}</span>
+            <span class="timestamp">${data.timestamp}</span>
+          </div>
+          <div class="card-body">
+            <strong>Anomaly Trigger:</strong> ${data.error_count} errors within ${data.window_seconds}s sliding window.<br/>
+            <strong>Message:</strong> "${data.last_error}"
+            <div class="trace">Trace ID: ${data.trace_id}</div>
+          </div>
+        `;
+        container.prepend(card);
+      };
+    }
+
+    connect();
+  </script>
+</body>
+</html>
